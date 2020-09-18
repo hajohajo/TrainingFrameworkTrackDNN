@@ -7,6 +7,10 @@ from config import network_param_dict, make_model, phase1_iterations
 from iteration_enumerator import iteration_enumerator
 from helper_functions import get_timestamp
 from plotting import plot_xy, plot_ROC_comparison
+from network.hyper_network import HyperNetwork
+from kerastuner import Hyperband
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, wait
+from itertools import repeat
 
 class ModelManager():
     '''
@@ -16,16 +20,19 @@ class ModelManager():
     the additional computing power.
     '''
 
-    def __init__(self, reinitialize_model=False):
+    def __init__(self, n_regular_inputs, min_values, max_values):
+        self.n_regular_inputs = n_regular_inputs
+        self._min_values = min_values
+        self._max_values = max_values
         self._initialized_network_storage_path = "network_initialization"
-        self._reinitialize_model = reinitialize_model
         self._model = None
         self._result_dir = None
-        self._strategy = None
+        self._hypertuned_model = None
+        self._strategy = tf.distribute.MirroredStrategy(cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())if len(tf.config.list_logical_devices('GPU')) > 1 else tf.distribute.get_strategy()
 
 
 
-    def initalize_model(self, n_regular_inputs, n_categories, min_values, max_values):
+    def initalize_model(self, reinitialize_model=False):
         """
         Checks if this network architecture already has initialized weights stored and uses them, unless
         the desired architecture has been changed, or new initialization is explicitly asked for.
@@ -42,31 +49,36 @@ class ModelManager():
 
         :return:
         """
-        if len(tf.config.list_logical_devices('GPU')) > 1:
-            self._strategy = tf.distribute.MirroredStrategy(cross_device_ops=tf.distribute.HierarchicalCopyAllReduce()).scope()
-        else:
-            self._strategy = tf.distribute.get_strategy().scope()
-        with self._strategy:
-            current_model = make_model(n_regular_inputs, n_categories, min_values, max_values)
-            if not self._reinitialize_model:
-                #Check if initialized weights already exist or should new ones be created
-                if os.path.exists(f"{self._initialized_network_storage_path}"):
-                    stored_model = tf.keras.models.load_model(f"{self._initialized_network_storage_path}")
+        # if len(tf.config.list_logical_devices('GPU')) > 1:
+        #     self._strategy = tf.distribute.MirroredStrategy(cross_device_ops=tf.distribute.HierarchicalCopyAllReduce()).scope()
+        # else:
+        #     self._strategy = tf.distribute.get_strategy().scope()
+        with self._strategy.scope():
+            #Check if a tuned model exists and use that
+            if os.path.exists("hypertuned_model") and not reinitialize_model:
+                print("Found it")
+                stored_model = tf.keras.models.load_model("hypertuned_model")
+            else:
+                current_model = make_model(self.n_regular_inputs, self._min_values, self._max_values)
+                if not reinitialize_model:
+                    #Check if initialized weights already exist or should new ones be created
+                    if os.path.exists(f"{self._initialized_network_storage_path}"):
+                        stored_model = tf.keras.models.load_model(f"{self._initialized_network_storage_path}")
 
-                #Checks if the currently desired model differs from the stored model initialization from number of parameters
-                if (stored_model.count_params() != current_model.count_params()):
+                    #Checks if the currently desired model differs from the stored model initialization from number of parameters
+                    if (stored_model.count_params() != current_model.count_params()):
+                        print("Creating new model")
+                        stored_model = current_model
+                        shutil.rmtree(f"{self._initialized_network_storage_path}")
+                        stored_model.save(f"{self._initialized_network_storage_path}")
+                    else:
+                        print("Using saved initialization.")
+
+                else:
                     print("Creating new model")
                     stored_model = current_model
-                    shutil.rmtree(f"{self._initialized_network_storage_path}")
                     stored_model.save(f"{self._initialized_network_storage_path}")
-                else:
-                    print("Using saved initialization.")
-
-            else:
-                print("Creating new model")
-                stored_model = current_model
-                stored_model.save(f"{self._initialized_network_storage_path}")
-            #==========================================================================
+                #==========================================================================
 
             #Compile model.
             metrics = [tf.metrics.AUC()]
@@ -96,17 +108,49 @@ class ModelManager():
         python_exec = f'{sys.prefix}/bin/python'
         os.system(f'{python_exec} model_freeze.py {self._result_dir}')
 
-    def make_plots(self, dataset, name):
-        plot_dir = f'{self._result_dir}/plots/{name}'
-        os.mkdir(plot_dir)
+    def make_plots(self, datasets, names):
+        '''
+        Takes a list of datasets and names to produce the plots. Uses multiple processes since plotting takes a while
+        '''
 
-        #Produce for each iteration a separate plot on the performance of the classifier
-        for iteration_name in phase1_iterations:
-            label = iteration_enumerator[iteration_name]
-            indices = dataset.loc[:, "trk_originalAlgo"] == label
-            sub_dataframe = dataset.loc[indices, :]
+        with ProcessPoolExecutor(max_workers=len(names)) as p_executor:
+            p_executor.map(plot_dataset, datasets, names, repeat(self._result_dir))
+            p_executor.shutdown(wait=True)
 
-            plot_xy(sub_dataframe, "trk_pt", "prediction", "trk_isTrue",
-                   plot_dir, show_density=True, postfix=iteration_name)
-            plot_ROC_comparison(sub_dataframe, "prediction", "trk_mva",
-                                "trk_isTrue", plot_dir, postfix=iteration_name)
+    def search_hyperparameters(self, training_dataset, validation_dataset):
+        tuner = Hyperband(
+            hypermodel=HyperNetwork(self.n_regular_inputs, self._min_values, self._max_values).build,
+            objective='val_loss',
+            hyperband_iterations=1,
+            max_epochs=10,
+            seed=3,
+            directory=self._result_dir,
+            project_name='test',
+            distribution_strategy=self._strategy
+        )
+
+        tuner.search(training_dataset,
+                     validation_data=validation_dataset,
+                     epochs=5)
+
+        self._hypertuned_model = tuner.get_best_models(1)[0]
+        self._hypertuned_model.save(f'hypertuned_model')
+
+
+def plot_dataset(dataset, name, result_dir):
+    plot_dir = f'{result_dir}/plots/{name}'
+    os.mkdir(plot_dir)
+
+    with ProcessPoolExecutor(max_workers=len(phase1_iterations)) as t_executor:
+        t_executor.map(plot, repeat(dataset), phase1_iterations, repeat(plot_dir))
+        t_executor.shutdown(wait=True)
+
+def plot(dataset, iteration_name, plot_dir):
+    label = iteration_enumerator[iteration_name]
+    indices = dataset.loc[:, "trk_originalAlgo"] == label
+    sub_dataframe = dataset.loc[indices, :]
+
+    plot_xy(sub_dataframe, "trk_pt", "prediction", "trk_isTrue",
+            plot_dir, show_density=True, postfix=iteration_name)
+    plot_ROC_comparison(sub_dataframe, "prediction", "trk_mva",
+                        "trk_isTrue", plot_dir, postfix=iteration_name)

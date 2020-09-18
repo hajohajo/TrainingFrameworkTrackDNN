@@ -1,18 +1,6 @@
 
 
 #Convenience class for switching between trk_algo indices and step names
-# class _Enum:
-#     def __init__(self, **values):
-#         self._reverse = {}
-#         for key, value in values.items():
-#             setattr(self, key, value)
-#             if value in self._reverse:
-#                 raise Exception("Value %s is already used for a key %s, tried to re-add it for key %s" % (
-#                 value, self._reverse[value], key))
-#             self._reverse[value] = key
-#
-#     def toString(self, val):
-#         return self._reverse[val]
 class TwoWayDict(dict):
     def __init__(self, list_of_tuples):
         self.add(list_of_tuples)

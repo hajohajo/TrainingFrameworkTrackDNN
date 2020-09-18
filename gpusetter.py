@@ -32,8 +32,8 @@ standard one GPU treatment.
 '''
 gpu_settings = {
     "n_gpus": 4,
-    "min_vram": 3700,
-    "split_gpu_into": 2
+    "min_vram": 1800,
+    "split_gpu_into": 4
 }
 
 def set_gpus(n_gpus=gpu_settings["n_gpus"], min_vram=gpu_settings["min_vram"], split_gpu_into=gpu_settings["split_gpu_into"]):

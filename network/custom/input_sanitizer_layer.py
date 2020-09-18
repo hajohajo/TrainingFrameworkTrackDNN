@@ -16,6 +16,10 @@ class InputSanitizerLayer(tf.keras.layers.Layer):
     :param
     min_values : minimum values for each input variable seen in the training set in the order config.columns_to_use_in_training
     max_values : maximum values for each input variable seen in the training set in the order config.columns_to_use_in_training
+
+    See the last step of the call function: As min_value and max_value clipping is called only at the end, these min and max
+    values have to be determined from properly preprocessed values of the training samples! I.e. after taking the log and the
+    abs values of some of the variables.
     '''
 
     def __init__(self, preprocessed_min_values, preprocessed_max_values, **kwargs):

@@ -37,10 +37,12 @@ class DatasetLoader():
         if self.columns_to_load is None:
             raise TypeError("Set columns_to_load to contain a list of TTree branch names to be loaded into the dataframe as columns")
         file_paths = glob(path_to_directory)
-        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            results = list(executor.map(self.read_to_dataframe, file_paths, repeat(self.columns_to_load)))
-        if len(results) == 1:
-            dataframe = results[0]
+        if len(file_paths) == 1:
+            results = self.read_to_dataframe(file_paths[0], self.columns_to_load)
+            dataframe = results
         else:
+            file_paths = file_paths
+            with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+                results = list(executor.map(self.read_to_dataframe, file_paths, repeat(self.columns_to_load)))
             dataframe = results[0].append(results[1:]) #Joins the individual dataframes loaded by separate workers together
         return dataframe

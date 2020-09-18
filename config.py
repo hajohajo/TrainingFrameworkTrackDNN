@@ -16,7 +16,7 @@ minibatch_multiplier = n_gpus if n_gpus > 0 else 1
 network_callbacks =[]
 network_fit_param = {
     "batch_size":       2048*minibatch_multiplier,
-    "epochs":           15,
+    "epochs":           100,
     "callbacks":        network_callbacks,
 }
 
@@ -26,36 +26,24 @@ Commonly tuned parameters when training network
 network_param_dict = {
     "lr":                       3e-4,
     "loss":                     tf.keras.losses.binary_crossentropy,
-    "kernel_regularization":    tf.keras.regularizers.l2(1e-4),
+    "kernel_regularization":    tf.keras.regularizers.l2(0.0),
     "kernel_initializer":       tf.keras.initializers.lecun_normal()
 }
 
 '''
 Model architecture
 '''
-def make_model(n_regular_inputs, n_categories, min_values, max_values):
+def make_model(n_regular_inputs, min_values, max_values):
     _kernel_regularization = network_param_dict["kernel_regularization"]
     _kernel_initializer = network_param_dict["kernel_initializer"]
 
     reg_inp = Input(n_regular_inputs, name="regular_input_layer")
     cat_inp = Input(1, name="categorical_input_layer")
-    # x = Concatenate()([reg_inp, cat_inp])
 
-    # min_values = tf.cast(tf.convert_to_tensor(tf.reshape(min_values, (1, min_values.shape[-1]))),
-    #         dtype=tf.keras.backend.floatx())
-    # max_values = tf.cast(tf.convert_to_tensor(tf.reshape(max_values, (1, max_values.shape[-1]))),
-    #         dtype=tf.keras.backend.floatx())
     sanitized_inp = InputSanitizerLayer(min_values, max_values)(reg_inp)
-    # sanitized_inp = InputSanitizerLayer()(reg_inp)
     one_hot_inp = OneHotLayer()(cat_inp)
     x = Concatenate()([sanitized_inp, one_hot_inp])
-    # x = Concatenate()([reg_inp, cat_inp])
 
-    x = Dense(units=512,
-              activation='relu',
-              kernel_regularizer=_kernel_regularization,
-              kernel_initializer=_kernel_initializer)(x)
-    x = BatchNormalization()(x)
     x = Dense(units=256,
               activation='relu',
               kernel_regularizer=_kernel_regularization,
@@ -67,6 +55,19 @@ def make_model(n_regular_inputs, n_categories, min_values, max_values):
               kernel_initializer=_kernel_initializer)(x)
     x = BatchNormalization()(x)
     x = Dense(units=64,
+              activation='relu',
+              kernel_regularizer=_kernel_regularization,
+              kernel_initializer=_kernel_initializer)(x)
+    x = BatchNormalization()(x)
+
+    # for i in range(10):
+    #     x = Dense(units=32,
+    #               activation='relu',
+    #               kernel_regularizer=_kernel_regularization,
+    #               kernel_initializer=_kernel_initializer)(x)
+    #     x = BatchNormalization()(x)
+
+    x = Dense(units=32,
               activation='relu',
               kernel_regularizer=_kernel_regularization,
               kernel_initializer=_kernel_initializer)(x)
@@ -126,4 +127,4 @@ phase1_iterations = [
 ]
 
 test_set_size = 500000
-training_set_size = int(6e7)
+training_set_size = int(8e7)

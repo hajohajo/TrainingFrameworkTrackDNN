@@ -2,8 +2,32 @@ import numpy as np
 
 from argparse import ArgumentParser
 from datetime import datetime
-from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
-import tensorflow as tf
+from iteration_enumerator import iteration_enumerator
+
+def balance_iterations(dataframe, downsample=True):
+    '''
+    Resamples the dataframe so that each iterations accounts for at least 10% of the tracks in the training sample
+    :param dataframe:
+    :return:
+    '''
+
+    subframes = []
+    entries = []
+    for iteration in iteration_enumerator.keys():
+        if isinstance(iteration, str):
+            continue
+        subframe = dataframe.loc[(dataframe.trk_originalAlgo == iteration), :]
+        subframes.append(subframe)
+        entries.append(subframe.shape[0])
+
+    min_ = np.min(entries)
+    max_ = np.max(entries)
+    if downsample:
+        for index in range(len(subframes)):
+            subframes[index] = subframes[index].sample(n=min_)
+    dataframe = subframes[0].append(subframes[1:])
+    dataframe = dataframe.sample(frac=1.0).reset_index(drop=True)
+    return dataframe
 
 def balance_true_and_fakes(dataframe, target):
     '''
@@ -25,6 +49,8 @@ def balance_true_and_fakes(dataframe, target):
     fake_indices = dataframe.loc[(dataframe.loc[:, target].values == 0), :].index.values
     n_true_tracks = true_indices.size
     n_fake_tracks = fake_indices.size
+    print(n_true_tracks)
+    print(n_fake_tracks)
 
     if n_true_tracks > n_fake_tracks:
         balanced_indices = np.concatenate([true_indices, np.random.choice(fake_indices, size=n_true_tracks, replace=True)])
