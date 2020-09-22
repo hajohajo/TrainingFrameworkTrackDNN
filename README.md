@@ -53,6 +53,8 @@ For the files add whichever file you want to produce the candidates from. These 
 Good samples to use QCD_Flat_15to3000 with PU, TTbar with PU, High pT QCD samples and DisplacedSUSY (stoptobottom).
 
 ## Running the training
+As long as the DatasetLoader.load_into_dataframe() methods point to valid paths for the trackingNtuple files, the should run just by givin the main file to the python interpreter. If you want to control how GPUs are assigned on the machine (TF takes them all by default), gpusetter.py can be edited for your preference. Training hyperparameters and network architecture are collected into config.py in order to have all tunable parameters in the same place. model_freeze.py takes care that the model can be deployed to tensorflow, producing the frozen_graph.pb that needs to be copied to the RecoTracker/FinalTrackSelectors/data folder to be accessible.
+
 
 ### About the machine
 A GPU is a must for running these trainings, as it just takes too long on a CPU. I've been using a machine with up to four 1080GTX GPUs (4-5 years old tech) and that gives plenty of computing for this type of application since we're not using large images or such as inputs. Even one is enough, but splitting the training over multiple GPUs gives a non-negligible speedup. This level of hardware gives a turnaround time of roughly 1 hour to make a dense model with 30k-300k converge which is convenient for testing different things. Additionally its good to have some surplus memory available, a training set of O(100 million) tracks ends up taking around 60GB of memory.
